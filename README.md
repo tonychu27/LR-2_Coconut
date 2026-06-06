@@ -12,6 +12,10 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+The training environment should already provide a CUDA-enabled PyTorch build.
+This project intentionally does not install or upgrade `torch`, to avoid
+replacing the cluster's CUDA stack.
+
 ## Single-example overfit
 
 This is the required proof target for the assignment.
