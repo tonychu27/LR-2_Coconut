@@ -1,0 +1,17 @@
+QUESTION
+Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?
+
+TARGET
+<eot>
+Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
+#### 72
+
+GENERATED_AFTER_LATENTS
+<eot>
+Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
+#### 72 clips
+Natalia soldNatalia sold 48+24=72 clips altogether in April and May.
+#### 72 clips<|im_end|>
+
+FINAL_LOSS
+0.006683

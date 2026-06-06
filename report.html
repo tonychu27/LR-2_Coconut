@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LR-2 Coconut Report</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; color: #1f2933; background: #f7f8fa; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 22px 64px; background: white; }
+    h1, h2 { color: #102a43; }
+    code, pre { background: #eef2f7; border-radius: 6px; }
+    code { padding: 2px 5px; }
+    pre { padding: 14px; overflow-x: auto; }
+    .note { border-left: 4px solid #2f80ed; padding: 8px 14px; background: #f0f6ff; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #d9e2ec; padding: 8px; text-align: left; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LR-2: Coconut on GSM8K with Qwen3-0.6B</h1>
+  <p>
+    I implemented a compact Coconut reproduction targeting <code>Qwen/Qwen3-0.6B</code>.
+    Coconut replaces part of the chain of thought with continuous vectors: after a
+    <code>&lt;bot&gt;</code> marker, the model's final hidden state at the current position is
+    fed directly back as the next input embedding for <code>k</code> latent steps. No token is
+    sampled or embedded during those steps. The model then receives <code>&lt;eot&gt;</code> and
+    continues in normal language mode to produce the answer.
+  </p>
+
+  <h2>Implementation</h2>
+  <p>
+    The core is <code>src/coconut_qwen/modeling.py</code>. The wrapper accepts
+    <code>prefix_ids</code>, where the final token is <code>&lt;bot&gt;</code>, and
+    <code>suffix_ids</code>, beginning with <code>&lt;eot&gt;</code>. For each latent step it runs
+    the base model with <code>inputs_embeds</code>, takes <code>hidden_states[-1][:, -1:, :]</code>,
+    and appends that tensor to the embedding sequence. The tensor is not detached, so gradients
+    flow through the hidden-state feedback loop.
+  </p>
+  <p>
+    The loss mask is explicit. Prefix tokens, latent positions, and optional unsupervised
+    reasoning text are set to <code>-100</code>. The suffix tokens that should be learned keep
+    their token ids. Since decoder-only HuggingFace models shift labels internally, this supervises
+    each selected suffix token from its previous context, including the first answer token from
+    the <code>&lt;eot&gt;</code> state.
+  </p>
+
+  <h2>Curriculum</h2>
+  <p>
+    The training script follows the Coconut idea of progressively replacing textual reasoning
+    steps with latent reasoning. GSM8K rationales are split into newline-level steps. At stage
+    <code>s</code>, the first <code>s</code> rationale steps are removed from the language suffix;
+    the fixed latent segment must carry whatever information those removed steps used to provide.
+    Later visible steps and the final <code>#### answer</code> remain supervised unless
+    <code>--answer-only-loss</code> is selected.
+  </p>
+
+  <h2>Issues Hit And Solutions</h2>
+  <table>
+    <tr><th>Issue</th><th>Resolution</th></tr>
+    <tr>
+      <td>Latent positions cannot be prepared as static token embeddings.</td>
+      <td>Run the model sequentially over the latent region and append the previous hidden state as the next embedding.</td>
+    </tr>
+    <tr>
+      <td>Gradient flow is easy to break.</td>
+      <td>The fed-back hidden state is appended directly; no <code>detach()</code>, sampling, or token-id conversion is used.</td>
+    </tr>
+    <tr>
+      <td>Markers must be stable tokenizer items.</td>
+      <td>Add <code>&lt;bot&gt;</code>, <code>&lt;eot&gt;</code>, and <code>&lt;latent&gt;</code> as special tokens and resize embeddings.</td>
+    </tr>
+    <tr>
+      <td>Loss can accidentally train latent placeholders.</td>
+      <td>Latent positions have label <code>-100</code>; only selected language suffix tokens contribute to cross entropy.</td>
+    </tr>
+    <tr>
+      <td>Full GSM8K runs are expensive for a small reproduction.</td>
+      <td>Provide LoRA by default for practical runs; keep the required single-example overfit as the primary correctness check.</td>
+    </tr>
+  </table>
+
+  <h2>Overfit-One-Example Evidence</h2>
+  <p class="note">
+    I ran the required single-example overfit with Qwen3-0.6B, 2 latent steps, and LoRA.
+    It stopped after 23 optimizer steps with final loss <strong>0.006683</strong>.
+    Artifacts are in <code>runs/one_example/</code>.
+  </p>
+  <pre><code>python scripts/overfit_one.py \
+  --model Qwen/Qwen3-0.6B \
+  --output-dir runs/one_example \
+  --latent-steps 2 \
+  --max-steps 300 \
+  --lr 2e-4 \
+  --lora</code></pre>
+  <p>Training loss tail:</p>
+  <pre><code>19,0.1123046875
+20,0.08056640625
+21,0.05615234375
+22,0.0250244140625
+23,0.006683349609375</code></pre>
+  <p>Overfit example:</p>
+  <pre><code>Question:
+Natalia sold clips to 48 of her friends in April, and then she sold half as many
+clips in May. How many clips did Natalia sell altogether in April and May?
+
+Target:
+&lt;eot&gt;
+Natalia sold 48+24 = &lt;&lt;48+24=72&gt;&gt;72 clips altogether in April and May.
+#### 72
+
+Generated after latent states:
+&lt;eot&gt;
+Natalia sold 48+24 = &lt;&lt;48+24=72&gt;&gt;72 clips altogether in April and May.
+#### 72 clips
+...</code></pre>
+  <p>
+    The generated text reaches the correct numeric answer <code>#### 72</code>. It continues after
+    that because this overfit target did not explicitly train an EOS immediately after the answer;
+    the correctness check is the answer prefix and near-zero supervised loss.
+  </p>
+
+  <h2>Full GSM8K Accuracy</h2>
+  <p>
+    I did not complete a full GSM8K training run in this submission. The scripts are included:
+  </p>
+  <pre><code>python scripts/train_gsm8k.py --model Qwen/Qwen3-0.6B --output-dir runs/gsm8k_coconut --latent-steps 2 --lora
+python scripts/evaluate_gsm8k.py --model Qwen/Qwen3-0.6B --adapter runs/gsm8k_coconut/final --latent-steps 2</code></pre>
+
+  <h2>References</h2>
+  <ul>
+    <li>Hao et al., <em>Training Large Language Models to Reason in a Continuous Latent Space</em>, arXiv:2412.06769.</li>
+    <li>Official implementation: <code>facebookresearch/coconut</code>.</li>
+    <li>Dataset: <code>openai/gsm8k</code> on HuggingFace Datasets.</li>
+  </ul>
+</main>
+</body>
+</html>

@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+runs/*
+!runs/one_example/
+!runs/one_example/loss_curve.csv
+!runs/one_example/loss_curve.png
+!runs/one_example/prediction.txt
+
+*.log
