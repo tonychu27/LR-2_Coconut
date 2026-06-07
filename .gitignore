@@ -1,9 +1,12 @@
 __pycache__/
+.venv/
 *.py[cod]
 .pytest_cache/
 *.egg-info/
 
 runs/*
+!runs/*_predictions.csv
+!runs/*_predictions.json
 !runs/one_example/
 !runs/one_example/loss_curve.csv
 !runs/one_example/loss_curve.png

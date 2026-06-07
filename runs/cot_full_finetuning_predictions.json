@@ -1,0 +1,12 @@
+{
+  "mode": "cot",
+  "model": "runs/gsm8k_cot_fullft/final",
+  "adapter": null,
+  "latent_steps": null,
+  "limit": null,
+  "max_new_tokens": null,
+  "backend": "vllm",
+  "correct": 310,
+  "total": 1319,
+  "accuracy": 0.2350265352539803
+}

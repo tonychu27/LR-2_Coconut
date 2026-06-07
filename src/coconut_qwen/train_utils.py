@@ -8,13 +8,20 @@ import torch
 from peft import LoraConfig, get_peft_model
 
 
-def maybe_enable_lora(model, enabled: bool, *, r: int = 8, alpha: int = 16):
+def maybe_enable_lora(
+    model,
+    enabled: bool,
+    *,
+    r: int = 8,
+    alpha: int = 16,
+    dropout: float = 0.05,
+):
     if not enabled:
         return model
     config = LoraConfig(
         r=r,
         lora_alpha=alpha,
-        lora_dropout=0.05,
+        lora_dropout=dropout,
         bias="none",
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],

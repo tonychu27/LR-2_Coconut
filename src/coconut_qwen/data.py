@@ -10,6 +10,7 @@ from .modeling import BOT_TOKEN, EOT_TOKEN, make_labels
 
 
 ANSWER_RE = re.compile(r"####\s*([\-0-9,.$ ]+)")
+ANSWER_TAG_RE = re.compile(r"<answer>\s*([\-0-9,.$ ]+)\s*</answer>", re.IGNORECASE)
 
 
 @dataclass
@@ -99,9 +100,12 @@ def encode_for_stage(
 
 
 def extract_numeric_answer(text: str) -> str:
-    match = ANSWER_RE.search(text)
-    if match:
-        return normalize_number(match.group(1))
+    tag_matches = list(ANSWER_TAG_RE.finditer(text))
+    if tag_matches:
+        return normalize_number(tag_matches[-1].group(1))
+    answer_matches = list(ANSWER_RE.finditer(text))
+    if answer_matches:
+        return normalize_number(answer_matches[-1].group(1))
     nums = re.findall(r"-?\d[\d,]*(?:\.\d+)?", text)
     return normalize_number(nums[-1]) if nums else ""
 

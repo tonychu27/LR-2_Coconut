@@ -1,0 +1,12 @@
+{
+  "mode": "cot",
+  "model": "Qwen/Qwen3-0.6B",
+  "adapter": null,
+  "latent_steps": null,
+  "limit": null,
+  "max_new_tokens": null,
+  "backend": "vllm",
+  "correct": 80,
+  "total": 1319,
+  "accuracy": 0.060652009097801364
+}
