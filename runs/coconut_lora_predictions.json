@@ -1,0 +1,12 @@
+{
+  "mode": "coconut",
+  "model": "Qwen/Qwen3-0.6B",
+  "adapter": "runs/gsm8k_coconut_lora/final",
+  "latent_steps": 2,
+  "limit": null,
+  "max_new_tokens": null,
+  "backend": "hf",
+  "correct": 182,
+  "total": 1319,
+  "accuracy": 0.1379833206974981
+}

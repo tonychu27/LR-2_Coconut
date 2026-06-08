@@ -1,0 +1,12 @@
+{
+  "mode": "coconut",
+  "model": "Qwen/Qwen3-0.6B",
+  "adapter": null,
+  "latent_steps": 2,
+  "limit": null,
+  "max_new_tokens": null,
+  "backend": "hf",
+  "correct": 73,
+  "total": 1319,
+  "accuracy": 0.05534495830174375
+}
