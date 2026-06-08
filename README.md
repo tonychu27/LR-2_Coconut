@@ -227,7 +227,4 @@ This writes:
 - `runs/one_example/prediction.txt`
 
 ## Notes
-
-`scripts/evalatuon.py` is only a compatibility wrapper for the misspelled old filename. Prefer `scripts/evaluate.py`.
-
 The default model is `Qwen/Qwen3-0.6B`. To use a different Qwen model, pass `--model` or set `MODEL=...` in the helper scripts.
