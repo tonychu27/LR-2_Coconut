@@ -2,6 +2,7 @@
   "mode": "coconut",
   "model": "Qwen/Qwen3-0.6B-Base",
   "adapter": null,
+  "merged_model": null,
   "latent_steps": 2,
   "limit": null,
   "max_new_tokens": 512,
@@ -9,7 +10,7 @@
   "num_fewshot": 4,
   "fewshot_seed": 1234,
   "backend": "hf",
-  "correct": 415,
+  "correct": 409,
   "total": 1319,
-  "accuracy": 0.3146322971948446
+  "accuracy": 0.3100833965125095
 }
