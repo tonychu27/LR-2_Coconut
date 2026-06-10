@@ -1,12 +1,15 @@
 {
   "mode": "direct",
-  "model": "Qwen/Qwen3-0.6B",
+  "model": "Qwen/Qwen3-0.6B-Base",
   "adapter": null,
   "latent_steps": null,
   "limit": null,
-  "max_new_tokens": null,
+  "max_new_tokens": 64,
+  "eval_style": "project",
+  "num_fewshot": null,
+  "fewshot_seed": null,
   "backend": "vllm",
-  "correct": 24,
+  "correct": 115,
   "total": 1319,
-  "accuracy": 0.01819560272934041
+  "accuracy": 0.08718726307808947
 }

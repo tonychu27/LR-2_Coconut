@@ -11,6 +11,7 @@ from .modeling import BOT_TOKEN, EOT_TOKEN, make_labels
 
 ANSWER_RE = re.compile(r"####\s*([\-0-9,.$ ]+)")
 ANSWER_TAG_RE = re.compile(r"<answer>\s*([\-0-9,.$ ]+)\s*</answer>", re.IGNORECASE)
+CALC_ANNOTATION_RE = re.compile(r"<<[^<>]*?>>")
 
 
 @dataclass
@@ -37,6 +38,10 @@ def split_gsm8k_answer(answer: str) -> tuple[list[str], str]:
     if not steps and rationale:
         steps = [piece.strip() for piece in re.split(r"(?<=[.!?])\s+", rationale) if piece.strip()]
     return steps, final
+
+
+def strip_gsm8k_calculator_annotations(text: str) -> str:
+    return CALC_ANNOTATION_RE.sub("", text)
 
 
 def load_gsm8k_examples(split: str = "train", limit: int | None = None) -> list[CoconutExample]:
@@ -80,6 +85,8 @@ def encode_for_stage(
     if visible_steps:
         suffix_text += "\n" + "\n".join(visible_steps)
     suffix_text += f"\n#### {example.final_answer}"
+    if tokenizer.eos_token:
+        suffix_text += tokenizer.eos_token
 
     prefix_ids = tokenizer(prefix_text, add_special_tokens=True).input_ids
     suffix_ids = tokenizer(suffix_text, add_special_tokens=False).input_ids
@@ -89,6 +96,8 @@ def encode_for_stage(
         supervised_mask = [True] * len(suffix_ids)
     else:
         answer_text = f"\n#### {example.final_answer}"
+        if tokenizer.eos_token:
+            answer_text += tokenizer.eos_token
         answer_ids = tokenizer(answer_text, add_special_tokens=False).input_ids
         supervised_mask = [False] * len(suffix_ids)
         if len(answer_ids) <= len(suffix_ids):

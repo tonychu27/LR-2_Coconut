@@ -1,12 +1,16 @@
 {
   "mode": "cot",
-  "model": "Qwen/Qwen3-0.6B",
-  "adapter": "runs/gsm8k_cot_lora/final",
+  "model": "Qwen/Qwen3-0.6B-Base",
+  "adapter": "runs/gsm8k_cot_lora_base_lr5e5_e3_clean/final",
+  "merged_model": null,
   "latent_steps": null,
   "limit": null,
-  "max_new_tokens": null,
-  "backend": "hf",
-  "correct": 293,
+  "max_new_tokens": 512,
+  "eval_style": "qwen_report",
+  "num_fewshot": 4,
+  "fewshot_seed": 1234,
+  "backend": "vllm_merged_lora",
+  "correct": 678,
   "total": 1319,
-  "accuracy": 0.2221379833206975
+  "accuracy": 0.5140257771038665
 }

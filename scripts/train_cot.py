@@ -13,32 +13,55 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from coconut_qwen.data import load_gsm8k_examples, prompt_for_question
+from coconut_qwen.data import (
+    load_gsm8k_examples,
+    prompt_for_question,
+    strip_gsm8k_calculator_annotations,
+)
 from coconut_qwen.modeling import add_coconut_tokens, load_tokenizer_and_model
 from coconut_qwen.train_utils import maybe_enable_lora
+
+import evaluate as eval_base
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default="Qwen/Qwen3-0.6B")
+    p.add_argument("--model", default="Qwen/Qwen3-0.6B-base")
     p.add_argument("--output-dir", default="runs/gsm8k_cot_baseline")
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--lr", type=float, default=2e-4)
+    p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--grad-accum-steps", type=int, default=1)
     p.add_argument("--warmup-steps", type=int, default=0)
-    p.add_argument("--warmup-ratio", type=float, default=0.0)
-    p.add_argument("--lora", action="store_true")
+    p.add_argument("--warmup-ratio", type=float, default=0.03)
+    p.add_argument("--min-lr-ratio", type=float, default=0.1)
     p.add_argument("--lora-r", type=int, default=8)
     p.add_argument("--lora-alpha", type=int, default=16)
     p.add_argument("--lora-dropout", type=float, default=0.05)
+    p.add_argument(
+        "--train-style",
+        choices=["project", "qwen_report"],
+        default="project",
+        help="project trains on the repo's #### format; qwen_report matches the 4-shot Qwen GSM8K eval prompt.",
+    )
+    p.add_argument("--num-fewshot", type=int, default=4)
     return p.parse_args()
 
 
-def encode_baseline(ex, tokenizer):
-    prompt = prompt_for_question(ex.question)
-    target = "\n".join(ex.reasoning_steps) + f"\n#### {ex.final_answer}"
+def encode_baseline(ex, tokenizer, *, train_style: str, num_fewshot: int):
+    if train_style == "qwen_report":
+        prompt = eval_base.qwen_report_prompt_for_question(ex.question, num_fewshot=num_fewshot)
+        rationale = strip_gsm8k_calculator_annotations("\n".join(ex.reasoning_steps))
+        if rationale:
+            target = f" {rationale}\nThe answer is {ex.final_answer}."
+        else:
+            target = f" The answer is {ex.final_answer}."
+    else:
+        prompt = prompt_for_question(ex.question)
+        target = "\n".join(ex.reasoning_steps) + f"\n#### {ex.final_answer}"
+    if tokenizer.eos_token:
+        target += tokenizer.eos_token
     prefix_ids = tokenizer(prompt, add_special_tokens=True).input_ids
     target_ids = tokenizer(target, add_special_tokens=False).input_ids
     input_ids = torch.tensor([prefix_ids + target_ids], dtype=torch.long)
@@ -46,11 +69,16 @@ def encode_baseline(ex, tokenizer):
     return input_ids, labels
 
 
-def collate_baseline(batch, tokenizer):
+def collate_baseline(batch, tokenizer, *, train_style: str, num_fewshot: int):
     input_rows = []
     label_rows = []
     for ex in batch:
-        input_ids, labels = encode_baseline(ex, tokenizer)
+        input_ids, labels = encode_baseline(
+            ex,
+            tokenizer,
+            train_style=train_style,
+            num_fewshot=num_fewshot,
+        )
         input_rows.append(input_ids.squeeze(0))
         label_rows.append(labels.squeeze(0))
     input_ids = pad_sequence(
@@ -63,12 +91,22 @@ def collate_baseline(batch, tokenizer):
     return input_ids, attention_mask, labels
 
 
-def make_warmup_scheduler(optim: torch.optim.Optimizer, warmup_steps: int) -> LambdaLR:
-    if warmup_steps <= 0:
-        return LambdaLR(optim, lambda _: 1.0)
+def make_warmup_decay_scheduler(
+    optim: torch.optim.Optimizer,
+    *,
+    warmup_steps: int,
+    total_steps: int,
+    min_lr_ratio: float,
+) -> LambdaLR:
+    if not 0.0 <= min_lr_ratio <= 1.0:
+        raise ValueError("--min-lr-ratio must be between 0 and 1")
 
     def lr_lambda(step: int) -> float:
-        return min(1.0, float(step + 1) / float(warmup_steps))
+        if warmup_steps > 0 and step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        decay_steps = max(1, total_steps - warmup_steps)
+        progress = min(1.0, float(step - warmup_steps + 1) / float(decay_steps))
+        return max(min_lr_ratio, 1.0 - progress * (1.0 - min_lr_ratio))
 
     return LambdaLR(optim, lr_lambda)
 
@@ -86,7 +124,7 @@ def main() -> None:
     add_coconut_tokens(tokenizer, model)
     model = maybe_enable_lora(
         model,
-        args.lora,
+        True,
         r=args.lora_r,
         alpha=args.lora_alpha,
         dropout=args.lora_dropout,
@@ -97,13 +135,23 @@ def main() -> None:
     loader = DataLoader(
         examples,
         batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=lambda batch: collate_baseline(batch, tokenizer),
+        shuffle=True,
+        collate_fn=lambda batch: collate_baseline(
+            batch,
+            tokenizer,
+            train_style=args.train_style,
+            num_fewshot=args.num_fewshot,
+        ),
     )
     total_micro_steps = len(loader) * args.epochs
     total_optim_steps = (total_micro_steps + args.grad_accum_steps - 1) // args.grad_accum_steps
     warmup_steps = args.warmup_steps or int(total_optim_steps * args.warmup_ratio)
-    scheduler = make_warmup_scheduler(optim, warmup_steps)
+    scheduler = make_warmup_decay_scheduler(
+        optim,
+        warmup_steps=warmup_steps,
+        total_steps=total_optim_steps,
+        min_lr_ratio=args.min_lr_ratio,
+    )
 
     log_path = out_dir / "train_log.csv"
     log_path.write_text("micro_step,optimizer_step,loss,lr\n", encoding="utf-8")

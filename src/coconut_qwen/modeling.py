@@ -190,6 +190,7 @@ class CoconutForCausalLM(nn.Module):
         max_new_tokens: int = 128,
         temperature: float = 0.0,
         eos_token_id: int | None = None,
+        stop_token_ids: list[list[int]] | None = None,
     ) -> torch.Tensor:
         steps = self.config.latent_steps
         prefix_embeds = self._embed(prefix_ids.to(self.device))
@@ -222,6 +223,10 @@ class CoconutForCausalLM(nn.Module):
             token = int(next_id.item())
             generated.append(token)
             if eos_token_id is not None and token == eos_token_id:
+                break
+            if stop_token_ids and any(
+                len(stop) > 0 and generated[-len(stop) :] == stop for stop in stop_token_ids
+            ):
                 break
             out = self.base_model(input_ids=next_id, past_key_values=past, use_cache=True)
             past = out.past_key_values

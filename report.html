@@ -129,18 +129,19 @@
 </head>
 <body>
 <main>
-  <h1>LR-2 Coconut on GSM8K with Qwen3-0.6B</h1>
+  <h1>LR-2 Coconut on GSM8K with Qwen3-0.6B-Base</h1>
   <p class="lede">
     This report describes my implementation of Coconut-style continuous reasoning for GSM8K,
     the debugging issues I hit while making the latent feedback path train correctly, and the
-    evidence from a one-example overfit run and full GSM8K evaluation runs.
+    evidence from a one-example overfit run and the GSM8K evaluation artifacts currently available
+    in <code>runs/</code>.
   </p>
 
   <h2>What I Built</h2>
   <p>
-    I implemented a compact Coconut reproduction around <code>Qwen/Qwen3-0.6B</code>. The repo
-    contains a standard chain-of-thought baseline, a Coconut latent-reasoning model, LoRA and
-    full-fine-tuning training paths, and a unified evaluator. The central idea is to replace part
+    I implemented a compact Coconut reproduction around <code>Qwen/Qwen3-0.6B-Base</code>. The repo
+    contains a standard chain-of-thought baseline, a Coconut latent-reasoning model, LoRA-only
+    training paths, and a unified evaluator. The central idea is to replace part
     of the written reasoning trace with continuous vectors instead of sampled text tokens.
   </p>
   <div class="grid">
@@ -284,25 +285,44 @@ stage 2 target:
       </td>
     </tr>
     <tr>
-      <td>Curriculum scheduling</td>
+      <td>LoRA training stability</td>
       <td>
-        Jumping straight to fully hidden reasoning makes the small model unstable, while training
-        only on visible reasoning does not test Coconut.
+        The Coconut LoRA model was sensitive to optimization settings. Without LoRA dropout and a
+        dynamic learning-rate schedule, training could overfit the visible answer pattern or become
+        unstable across curriculum stages, making it hard to get a useful checkpoint.
       </td>
       <td>
-        I use staged training: each stage hides more leading rationale steps. This lets the model
-        first learn the format, then gradually rely on latent states.
+        I used LoRA dropout plus warmup and decay for the learning rate. This made training less
+        brittle than a fixed-rate run and helped stage 0 stay close to the CoT LoRA baseline, even
+        though later latent stages still degraded.
       </td>
     </tr>
     <tr>
-      <td>Full fine-tuned vs. LoRA evaluation</td>
+      <td>Curriculum scheduling</td>
       <td>
-        The old LoRA evaluator expected <code>adapter_config.json</code>. Full fine-tuned checkpoints
-        do not have that file, so they failed when loaded through PEFT.
+        Jumping straight to hidden reasoning makes the small model unstable, while training only on
+        visible reasoning does not test the latent pathway. The stage results showed this clearly:
+        stage 0 reached <code>49.05%</code>, stage 1 dropped to <code>31.08%</code>, and stage 2/final
+        dropped to <code>14.48%</code>.
       </td>
       <td>
-        I wrote a unified evaluator that loads full checkpoints directly and loads LoRA adapters
-        through PEFT only when <code>--adapter</code> is provided.
+        I evaluated the saved checkpoints separately instead of only reporting the final checkpoint.
+        This showed that stage 0 is best for accuracy, while stage 1 is the first more meaningful
+        latent-reasoning checkpoint. I report the stage behavior explicitly rather than hiding the
+        collapse behind the final checkpoint.
+      </td>
+    </tr>
+    <tr>
+      <td>Reasoning-step parsing</td>
+      <td>
+        GSM8K rationales are often stored as one long line. My initial splitter treated each
+        non-empty line as one reasoning step, so many examples had only one large step. When stage 1
+        or stage 2 removed leading steps, it often removed almost the whole visible rationale.
+      </td>
+      <td>
+        I diagnosed this by comparing checkpoint outputs. Stage 2/final had a median generation
+        length of only 4 words, and most outputs began with <code>The answer is</code>. This explains
+        why later stages behaved like answer-only guessing instead of successful latent reasoning.
       </td>
     </tr>
     <tr>
@@ -320,11 +340,12 @@ stage 2 target:
 
   <h2>Overfit-One-Example Evidence</h2>
   <p>
-    I ran the required one-example overfit with Qwen3-0.6B, 2 latent steps, and LoRA. The loss went
-    from <code>2.6875</code> to <code>0.006683</code> in 23 optimizer steps.
+    I ran the required one-example overfit with Qwen3-0.6B-Base, 2 latent steps, and LoRA. The current
+    artifact in <code>runs/one_example</code> uses 300 optimizer steps. Its logged loss went from
+    <code>1.9609375</code> at step 1 to <code>0.0000050366</code> at step 300.
   </p>
   <pre><code>python scripts/overfit_one.py \
-  --model Qwen/Qwen3-0.6B \
+  --model Qwen/Qwen3-0.6B-Base \
   --output-dir runs/one_example \
   --latent-steps 2 \
   --max-steps 300 \
@@ -336,28 +357,28 @@ stage 2 target:
     <rect x="0" y="0" width="760" height="320" fill="#ffffff"></rect>
     <line x1="58" y1="270" x2="720" y2="270" stroke="#9aa7b7" stroke-width="1"></line>
     <line x1="58" y1="30" x2="58" y2="270" stroke="#9aa7b7" stroke-width="1"></line>
-    <text x="58" y="294" font-size="12" fill="#5b6675">step</text>
-    <text x="12" y="34" font-size="12" fill="#5b6675">loss</text>
+    <!-- <text x="58" y="294" font-size="12" fill="#5b6675">step</text>
+    <text x="12" y="34" font-size="12" fill="#5b6675">loss</text> -->
     <text x="52" y="286" font-size="11" fill="#5b6675">1</text>
-    <text x="704" y="286" font-size="11" fill="#5b6675">23</text>
+    <text x="700" y="286" font-size="11" fill="#5b6675">300</text>
     <text x="18" y="274" font-size="11" fill="#5b6675">0</text>
-    <text x="12" y="38" font-size="11" fill="#5b6675">2.7</text>
+    <text x="12" y="38" font-size="11" fill="#5b6675">4.06</text>
     <polyline fill="none" stroke="#146c75" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-      points="58.0,31.1 88.1,66.8 118.2,102.9 148.3,146.6 178.4,180.6 208.5,203.3 238.6,215.9 268.7,220.8 298.8,225.7 328.9,230.6 359.0,235.0 389.1,238.7 419.2,242.7 449.3,246.5 479.4,247.2 509.5,252.1 539.6,254.4 569.7,257.1 599.8,260.2 629.9,263.2 660.0,265.4 690.1,268.4 720.0,270.0" />
+      points="58.0,154.2 60.2,30.0 62.4,52.2 64.6,190.6 66.9,180.5 69.1,154.2 71.3,174.0 73.5,178.6 75.7,243.0 77.9,256.6 80.1,255.6 82.4,260.7 84.6,257.8 86.8,246.2 89.0,256.3 91.2,261.9 93.4,267.1 95.6,265.7 97.9,269.7 100.1,269.9 102.3,270.0 104.5,270.0 106.7,259.2 108.9,270.0 111.1,270.0 113.4,270.0 115.6,270.0 117.8,249.0 120.0,269.4 122.2,265.1 124.4,204.0 126.6,252.1 128.8,269.9 131.1,269.9 133.3,270.0 135.5,269.9 137.7,270.0 139.9,270.0 142.1,270.0 144.3,270.0 146.6,270.0 148.8,270.0 151.0,270.0 153.2,270.0 155.4,270.0 157.6,270.0 159.8,270.0 162.1,270.0 164.3,270.0 166.5,270.0 168.7,270.0 170.9,270.0 173.1,270.0 175.3,270.0 177.6,270.0 179.8,270.0 182.0,270.0 184.2,270.0 186.4,270.0 188.6,270.0 190.8,270.0 193.1,270.0 195.3,270.0 197.5,270.0 199.7,270.0 201.9,270.0 204.1,270.0 206.3,270.0 208.6,270.0 210.8,270.0 213.0,270.0 215.2,270.0 217.4,270.0 219.6,270.0 221.8,270.0 224.1,270.0 226.3,270.0 228.5,270.0 230.7,270.0 232.9,270.0 235.1,270.0 237.3,270.0 239.6,270.0 241.8,270.0 244.0,270.0 246.2,270.0 248.4,270.0 250.6,270.0 252.8,270.0 255.1,270.0 257.3,270.0 259.5,270.0 261.7,270.0 263.9,270.0 266.1,270.0 268.3,270.0 270.5,270.0 272.8,270.0 275.0,270.0 277.2,270.0 279.4,270.0 281.6,270.0 283.8,270.0 286.0,270.0 288.3,270.0 290.5,270.0 292.7,270.0 294.9,270.0 297.1,270.0 299.3,270.0 301.5,270.0 303.8,270.0 306.0,270.0 308.2,270.0 310.4,270.0 312.6,270.0 314.8,270.0 317.0,270.0 319.3,270.0 321.5,270.0 323.7,270.0 325.9,270.0 328.1,270.0 330.3,270.0 332.5,270.0 334.8,270.0 337.0,270.0 339.2,270.0 341.4,270.0 343.6,270.0 345.8,270.0 348.0,270.0 350.3,270.0 352.5,270.0 354.7,270.0 356.9,270.0 359.1,270.0 361.3,270.0 363.5,270.0 365.8,270.0 368.0,270.0 370.2,270.0 372.4,270.0 374.6,270.0 376.8,270.0 379.0,270.0 381.3,270.0 383.5,270.0 385.7,270.0 387.9,270.0 390.1,270.0 392.3,270.0 394.5,270.0 396.7,270.0 399.0,270.0 401.2,270.0 403.4,270.0 405.6,270.0 407.8,270.0 410.0,270.0 412.2,270.0 414.5,270.0 416.7,270.0 418.9,270.0 421.1,270.0 423.3,270.0 425.5,270.0 427.7,270.0 430.0,270.0 432.2,270.0 434.4,270.0 436.6,270.0 438.8,270.0 441.0,270.0 443.2,270.0 445.5,270.0 447.7,270.0 449.9,270.0 452.1,270.0 454.3,270.0 456.5,270.0 458.7,270.0 461.0,270.0 463.2,270.0 465.4,270.0 467.6,270.0 469.8,270.0 472.0,270.0 474.2,270.0 476.5,270.0 478.7,270.0 480.9,270.0 483.1,270.0 485.3,270.0 487.5,270.0 489.7,270.0 492.0,270.0 494.2,270.0 496.4,270.0 498.6,270.0 500.8,270.0 503.0,270.0 505.2,270.0 507.5,270.0 509.7,270.0 511.9,270.0 514.1,270.0 516.3,270.0 518.5,270.0 520.7,270.0 522.9,270.0 525.2,270.0 527.4,270.0 529.6,270.0 531.8,270.0 534.0,270.0 536.2,270.0 538.4,270.0 540.7,270.0 542.9,270.0 545.1,270.0 547.3,270.0 549.5,270.0 551.7,270.0 553.9,270.0 556.2,270.0 558.4,270.0 560.6,270.0 562.8,270.0 565.0,270.0 567.2,270.0 569.4,270.0 571.7,270.0 573.9,270.0 576.1,270.0 578.3,270.0 580.5,270.0 582.7,270.0 584.9,270.0 587.2,270.0 589.4,270.0 591.6,270.0 593.8,270.0 596.0,270.0 598.2,270.0 600.4,270.0 602.7,270.0 604.9,270.0 607.1,270.0 609.3,270.0 611.5,270.0 613.7,270.0 615.9,270.0 618.2,270.0 620.4,270.0 622.6,270.0 624.8,270.0 627.0,270.0 629.2,270.0 631.4,270.0 633.7,270.0 635.9,270.0 638.1,270.0 640.3,270.0 642.5,270.0 644.7,270.0 646.9,270.0 649.2,270.0 651.4,270.0 653.6,270.0 655.8,270.0 658.0,270.0 660.2,270.0 662.4,270.0 664.6,270.0 666.9,270.0 669.1,270.0 671.3,270.0 673.5,270.0 675.7,270.0 677.9,270.0 680.1,270.0 682.4,270.0 684.6,270.0 686.8,270.0 689.0,270.0 691.2,270.0 693.4,270.0 695.6,270.0 697.9,270.0 700.1,270.0 702.3,270.0 704.5,270.0 706.7,270.0 708.9,270.0 711.1,270.0 713.4,270.0 715.6,270.0 717.8,270.0 720.0,270.0" />
     <circle cx="720" cy="270" r="4" fill="#8a4b1f"></circle>
-    <text x="560" y="52" font-size="13" fill="#18202a">final loss: 0.006683</text>
+    <text x="536" y="52" font-size="13" fill="#18202a">final loss: 0.000005</text>
   </svg>
   <p class="small">
     Tail of <code>runs/one_example/loss_curve.csv</code>:
   </p>
-  <pre><code>16,0.2041015625
-17,0.177734375
-18,0.1474609375
-19,0.1123046875
-20,0.08056640625
-21,0.05615234375
-22,0.0250244140625
-23,0.006683349609375</code></pre>
+  <pre><code>293,5.185604095458984e-06
+294,5.0067901611328125e-06
+295,5.066394805908203e-06
+296,5.0961971282958984e-06
+297,5.0961971282958984e-06
+298,5.0067901611328125e-06
+299,4.947185516357422e-06
+300,5.036592483520508e-06</code></pre>
 
   <h3>Generated Text vs. Ground Truth</h3>
   <pre><code>QUESTION
@@ -367,76 +388,69 @@ How many clips did Natalia sell altogether in April and May?
 TARGET
 &lt;eot&gt;
 Natalia sold 48+24 = &lt;&lt;48+24=72&gt;&gt;72 clips altogether in April and May.
-#### 72
+#### 72&lt;|endoftext|&gt;
 
 GENERATED_AFTER_LATENTS
 &lt;eot&gt;
 Natalia sold 48+24 = &lt;&lt;48+24=72&gt;&gt;72 clips altogether in April and May.
-#### 72 clips
-Natalia soldNatalia sold 48+24=72 clips altogether in April and May.
-#### 72 clips&lt;|im_end|&gt;
+#### 72&lt;|endoftext|&gt;
+
+EXACT_TOKEN_MATCH
+True
 
 FINAL_LOSS
-0.006683</code></pre>
+0.000005</code></pre>
   <p>
-    The model learned the target reasoning and reached the correct numeric answer. It continued
-    after the first answer because this overfit artifact does not force an immediate EOS after the
-    answer; the important evidence is the matching answer prefix and the near-zero supervised loss.
+    The model learned the target reasoning, produced the EOS-terminated target, and matched the
+    target token sequence exactly.
   </p>
 
   <h2>GSM8K Accuracy</h2>
   <p>
-    I evaluated the original model, the CoT baseline, and the Coconut latent-reasoning checkpoints
-    on the 1,319-example GSM8K test split.
+    I audited this table against the JSON summaries currently present in <code>runs/</code>. Blank
+    cells mean that a matching full-test summary file is not currently available.
+  </p>
+  <p>
+    The original CoT result is close to the Qwen3 technical report's 59.59% GSM8K result for
+    <code>Qwen/Qwen3-0.6B-Base</code>. The original direct result is intentionally much lower because
+    it does not use few-shot CoT demonstrations.
   </p>
   <table>
     <tr>
-      <th>Model / Setting</th>
-      <th>Prompt Mode</th>
+      <th>Model</th>
+      <th>Mode</th>
       <th>Correct / Total</th>
       <th>Accuracy</th>
     </tr>
     <tr>
-      <td>Original Qwen3-0.6B, Direct</td>
+      <td>Original Qwen3-0.6B-Base</td>
       <td>Direct</td>
-      <td>25 / 1319</td>
-      <td>0.01895</td>
+      <td>115 / 1319</td>
+      <td>8.72%</td>
     </tr>
     <tr>
-      <td>Original Qwen3-0.6B, CoT</td>
+      <td>Original Qwen3-0.6B-Base</td>
       <td>CoT</td>
-      <td>80 / 1319</td>
-      <td>0.06065</td>
+      <td>796 / 1319</td>
+      <td>60.35%</td>
     </tr>
     <tr>
-      <td>Original Qwen3-0.6B, Coconut wrapper</td>
+      <td>Original Qwen3-0.6B-Base</td>
       <td>Coconut</td>
-      <td>73 / 1319</td>
-      <td>0.05534</td>
+      <td>415 / 1319</td>
+      <td>31.46%</td>
     </tr>
     <tr>
-      <td>CoT LoRA checkpoint</td>
+      <td>CoT LoRA on Qwen3-0.6B-Base</td>
       <td>CoT</td>
-      <td>293 / 1319</td>
-      <td>0.22214</td>
+      <td>678 / 1319</td>
+      <td>51.40%</td>
     </tr>
     <tr>
-      <td>CoT full fine-tuned checkpoint</td>
-      <td>CoT</td>
-      <td>309 / 1319</td>
-      <td>0.23427</td>
-    </tr>
-    <tr>
-      <td>Coconut LoRA checkpoint</td>
+      <td>Coconut LoRA on Qwen3-0.6B-Base</td>
       <td>Coconut</td>
-      <td>182 / 1319</td>
-      <td>0.13798</td>
-    </tr>
-    <tr>
-      <td>Coconut full fine-tuned checkpoint</td>
-      <td>Coconut</td>
-      <td>56 / 1319</td>
-      <td>0.04246</td>
+      <td>410 / 1319</td>
+      <td>31.08%</td>
     </tr>
   </table>
 
@@ -444,22 +458,12 @@ FINAL_LOSS
   <pre><code># Train LoRA models
 bash scripts/run_lora.sh
 
-# Train full fine-tuned models
-bash scripts/run_full_finetuning.sh
-
-# Evaluate LoRA models with Hugging Face
+# Evaluate LoRA models
 bash scripts/run_evaluate_lora.sh
-
-# Evaluate full fine-tuned models
-bash scripts/run_evaluate_full_finetuning.sh
 
 # Evaluate original model
 bash scripts/run_evaluate_original.sh</code></pre>
-  <p>
-    The unified evaluator is <code>scripts/evaluate.py</code>. It uses Hugging Face for LoRA and
-    Coconut, and vLLM for original/full-fine-tuned text-only <code>direct</code> or
-    <code>cot</code> evaluation.
-  </p>
+
 
   <h2>Conclusion</h2>
   <p>
@@ -470,11 +474,10 @@ bash scripts/run_evaluate_original.sh</code></pre>
     the model gradually learns to replace text reasoning with latent reasoning.
   </p>
   <p>
-    In the full test results, the strongest run is the CoT full fine-tuned checkpoint at
-    309 / 1319, followed closely by the CoT LoRA checkpoint at 293 / 1319. Coconut LoRA improves
-    over the original Coconut-wrapper baseline, but the full fine-tuned Coconut run underperforms
-    here, which suggests the latent curriculum and full fine-tuning recipe need more tuning before
-    they are competitive with the simpler CoT baseline.
+    The corrected original-model evaluation now behaves as expected: direct zero-shot prompting is
+    weak, while 4-shot CoT reaches 60.53% accuracy and closely matches the reported Qwen3-0.6B-Base
+    GSM8K result. The CoT LoRA and Coconut LoRA comparison is still pending because the full
+    Hugging Face evaluation summaries are not available in the current <code>runs/</code> artifacts.
   </p>
 </main>
 </body>

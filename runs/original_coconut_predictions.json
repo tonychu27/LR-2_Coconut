@@ -1,12 +1,15 @@
 {
   "mode": "coconut",
-  "model": "Qwen/Qwen3-0.6B",
+  "model": "Qwen/Qwen3-0.6B-Base",
   "adapter": null,
   "latent_steps": 2,
   "limit": null,
-  "max_new_tokens": null,
+  "max_new_tokens": 512,
+  "eval_style": "qwen_report",
+  "num_fewshot": 4,
+  "fewshot_seed": 1234,
   "backend": "hf",
-  "correct": 73,
+  "correct": 415,
   "total": 1319,
-  "accuracy": 0.05534495830174375
+  "accuracy": 0.3146322971948446
 }

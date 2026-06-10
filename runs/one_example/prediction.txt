@@ -4,14 +4,15 @@ Natalia sold clips to 48 of her friends in April, and then she sold half as many
 TARGET
 <eot>
 Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
-#### 72
+#### 72<|endoftext|>
 
 GENERATED_AFTER_LATENTS
 <eot>
 Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.
-#### 72 clips
-Natalia soldNatalia sold 48+24=72 clips altogether in April and May.
-#### 72 clips<|im_end|>
+#### 72<|endoftext|>
+
+EXACT_TOKEN_MATCH
+True
 
 FINAL_LOSS
-0.006683
+0.000005
