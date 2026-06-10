@@ -161,9 +161,5 @@ This writes:
 - `runs/one_example/loss_curve.png`
 - `runs/one_example/prediction.txt`
 
-## Backend Notes
-
-- Coconut evaluation uses Hugging Face because it feeds hidden states back with
-  `inputs_embeds`.
-- Plain `direct` and `cot` evaluation can use vLLM.
-- `scripts/evaluate.py --backend auto` chooses the default backend for the mode.
+## Notes
+The default model is `Qwen/Qwen3-0.6B`. To use a different Qwen model, pass `--model` or set `MODEL=...` in the helper scripts.
